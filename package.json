@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "author": "Maxim Kovalov <max.kovalov@gmail.com>",
-  "license": "MIT",
+  "license": "GPL-3.0",
+  "private": true,
   "scripts": {
     "start": "bin/www",
     "start-dev": "NODE_ENV=development nodemon bin/www",
