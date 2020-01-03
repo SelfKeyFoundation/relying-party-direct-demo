@@ -1,8 +1,23 @@
 block content
 	h1 User Info
 	p User ID: #{user.id}
-	p Selfkey ID: #{user.kyccId}
+	p Selfkey ID: #{user.dids[0]}
 	p First Name: #{user.firstName}
 	p Last Name: #{user.lastName}
 	p Email: #{user.email}
+	h2 Passport
+	h5 Main page
+	if user.passport.image.mimeType.startsWith('image')
+		img(src="/me/files/#{user.passport.image.content}")
+	else
+		a(href="/me/files/#{user.passport.image.content}" target="_blank") File
+	h5 Selfie
+	if user.passport.selfie.image.mimeType.startsWith('image')
+		img(src="/me/files/#{user.passport.selfie.image.content}")
+	else
+		a(href="/me/files/#{user.passport.selfie.image.content}" target="_blank") File
+
+	p Issued At: #{user.passport.issued}
+	p Expires At: #{user.passport.expires}
+
 	a(href="/logout") Logout

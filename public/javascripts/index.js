@@ -20,7 +20,7 @@ const config = {
 		},
 		{
 			label: 'Last Name',
-			attribute: 'http://platform.selfkey.org/schema/attribute/last-name.json'
+			schemaId: 'http://platform.selfkey.org/schema/attribute/last-name.json'
 		},
 		{
 			id: 'email',

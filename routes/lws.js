@@ -6,7 +6,8 @@ const upload = multer();
 const Users = require('../models/users');
 const Documents = require('../models/documents');
 
-const JWT_SECRET = 'lws-direct-example-secret';
+const JWT_SECRET =
+	'lws-direct-example-secret-lws-direct-example-secret-lws-direct-example-secret-lws-direct-example-secret-lws-direct-example-secret';
 const JWT_ALGORITHM = 'hmac';
 
 const LWS_TEMPLATE = [
@@ -17,7 +18,7 @@ const LWS_TEMPLATE = [
 	},
 	{
 		label: 'Last Name',
-		attribute: 'http://platform.selfkey.org/schema/attribute/last-name.json'
+		schemaId: 'http://platform.selfkey.org/schema/attribute/last-name.json'
 	},
 	{
 		id: 'email',
@@ -46,10 +47,14 @@ const jwtAuthMiddleware = tokenType => async (req, res, next) => {
 	}
 	// parse the authorization header and fetch the actual jwt token string
 	const tokenString = auth.replace(/^Bearer /, '');
+
 	try {
-		req.decodedAuth = await (tokenType === 'challenge'
+		// validate jwt token as challenge or access token
+		const decoded = await (tokenType === 'challenge'
 			? sk.auth.validateChallengeToken(tokenString, JWT_ALGORITHM, JWT_SECRET)
 			: sk.auth.validateAccessToken(tokenString, JWT_ALGORITHM, JWT_SECRET));
+
+		req.decodedAuth = decoded.payload;
 
 		next();
 	} catch (error) {
@@ -63,6 +68,10 @@ const jwtAuthMiddleware = tokenType => async (req, res, next) => {
 let attributeManager;
 
 router.use(async (req, res, next) => {
+	// initialize selfkey attributes manager
+	// it is needed for attribute validation
+	// based on requirements and json schemas
+	// located at http://platform.selfkey.org/repository.json
 	if (!attributeManager) {
 		attributeManager = await sk.identity.AttributeManager.createWithSelfkeyRepository();
 	}
@@ -70,6 +79,7 @@ router.use(async (req, res, next) => {
 	next();
 });
 
+// Get challenge endpoint --> returns challenge jwt token
 router.get('/auth/challenge/:did', async (req, res, next) => {
 	const did = req.params.did;
 	try {
@@ -83,6 +93,9 @@ router.get('/auth/challenge/:did', async (req, res, next) => {
 	}
 });
 
+// Challenge response endpoint
+// Gets challenge jwt token and signature object
+// if signature is valid, return an "access" jwt token
 router.post('/auth/challenge', jwtAuthMiddleware('challenge'), async (req, res, next) => {
 	const signature = req.body.signature;
 
@@ -93,6 +106,7 @@ router.post('/auth/challenge', jwtAuthMiddleware('challenge'), async (req, res, 
 		});
 	}
 
+	// get nonce and did from decoded challenge token
 	const {nonce, sub: did} = req.decodedAuth;
 
 	try {
@@ -110,7 +124,8 @@ router.post('/auth/challenge', jwtAuthMiddleware('challenge'), async (req, res, 
 	}
 });
 
-router.post('/users/files', jwtAuthMiddleware(), upload.single('document'), (req, res) => {
+// Example user file upload endpoint. For real life use-cases files should not be stored in memory
+router.post('/users/file', jwtAuthMiddleware(), upload.single('document'), (req, res) => {
 	// fetch file from request
 	const f = req.file;
 
@@ -127,55 +142,81 @@ router.post('/users/files', jwtAuthMiddleware(), upload.single('document'), (req
 	doc = Documents.create(doc);
 
 	// respond with document id
-	return res.json({id: doc.id});
+	return res.json({id: '' + doc.id});
 });
 
+// Create user endpoint
+// Receives a list of attributes
 router.post('/users', jwtAuthMiddleware(), async (req, res) => {
 	// fetch attributes from body
-	const attributes = req.body;
+	let {attributes} = req.body;
 
 	if (!attributes || !attributes.length) {
 		return res.status(422).json({code: 'no_attributes', message: 'No attributes provided'});
 	}
+	try {
+		// Validate attributes based on requirements (LWS_TEMPLATE)
+		const {
+			attributes: validated,
+			errors,
+			valid
+		} = await req.attributeManager.validateAttributes(attributes, LWS_TEMPLATE);
 
-	const {attributes: validated, errors, valid} = req.attributeManager.validateAttributes(
-		attributes,
-		LWS_TEMPLATE
-	);
+		if (!valid) {
+			return res.status(422).json({
+				code: 'invalid_attributes',
+				message: 'Validation errors occurred',
+				errors
+			});
+		}
 
-	if (!valid) {
-		return res.status(422).json({
-			code: 'invalid_attributes',
-			message: 'Validation errors occurred',
-			errors
-		});
+		// create a human readable attribute map
+		// [{schemaId: 'http://platform.selfkey.org/schema/attribute/first-name.json', data: 'first name'}]
+		// Becomes
+		// { firstName: {schemaId: 'http://platform.selfkey.org/schema/attribute/first-name.json', data: 'first name'}}
+		attributes = sk.identity.utils.attributeMapBySchema(validated);
+
+		// create user object based on attributes
+		const userData = {
+			firstName: attributes.firstName.data,
+			lastName: attributes.lastName.data,
+			email: attributes.email.data,
+			passport: attributes.passport.data
+		};
+
+		// fetch public key from token
+		const did = req.decodedAuth.sub;
+
+		// update or create user by public key
+		let user = Users.findByDID(did);
+		if (user) {
+			user = Users.update(user.id, userData);
+		} else {
+			user = Users.create(userData, did);
+		}
+
+		if (!user) {
+			return res.status(400).json({
+				code: 'could_not_create',
+				message: 'Could not create user'
+			});
+		}
+
+		// send success empty respone
+		return res.status(201).send();
+	} catch (error) {
+		console.error(error);
+		return res
+			.status(422)
+			.json({code: 'invalid_attributes', message: 'Validation errors occurred'});
 	}
-
-	// fetch public key from token
-	const did = req.decodedAuth.sub;
-
-	// update or create user by public key
-	let user = Users.findByDID(did);
-
-	if (user) {
-		console.log('updating user');
-		user = Users.update(user.id, {attributes: validated});
-	} else {
-		user = Users.create({attributes: validated}, did);
-	}
-
-	if (!user) {
-		return res.status(400).json({
-			code: 'could_not_create',
-			message: 'Could not create user'
-		});
-	}
-
-	// send success empty respone
-	return res.status(201).send();
 });
 
-router.get('/users/token', jwtAuthMiddleware(), (req, res, next) => {
+// GET User token endpoint
+// returns a json object that is passed back to the web page
+// this payload should allow user to authenticate with the web page
+// in that case, a new jwt token is generated
+router.get('/users/token', jwtAuthMiddleware(), async (req, res, next) => {
 	const {sub: did} = req.decodedAuth;
 
 	const user = Users.findByDID(did);
@@ -187,18 +228,21 @@ router.get('/users/token', jwtAuthMiddleware(), (req, res, next) => {
 		});
 	}
 
-	const jwt = sk.jwt.issueJWT(did, JWT_ALGORITHM, JWT_SECRET);
-	return res.json(jwt);
+	const jwt = await sk.jwt.issueJWT(did, JWT_ALGORITHM, JWT_SECRET);
+	return res.json({jwt});
 });
 
+// Login endpoint
+// Optionally called from the web page with the payload provided by '/user/token' endpoint
+// Returns a json object with "redirectTo" key indicating a page to redirect to.
 router.post('/login', async (req, res, next) => {
 	const token = req.body.token || req.body.jwt;
 	if (!token) {
 		return next(new Error('Not token provided'));
 	}
 	try {
-		const decoded = sk.jwt.validate(token);
-		let user = Users.findByDID(decoded.sub);
+		const decoded = await sk.jwt.validateJWT(token, JWT_ALGORITHM, JWT_SECRET);
+		let user = Users.findByDID(decoded.payload.sub);
 		req.session.userID = user.id;
 		return res.json({redirectTo: '/me/info'});
 	} catch (error) {
