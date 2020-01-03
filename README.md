@@ -1,4 +1,4 @@
-# Login With Selfkey Demo for KYCC users
+# Login With Selfkey Demo for direct integrations
 
 ## Contents
 
