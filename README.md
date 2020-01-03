@@ -28,7 +28,7 @@ npm run start-dev
 
 ### SDK code examples
 
-From [routes/lws.js](https://github.com/SelfKeyFoundation/relying-party-kycc-demo/blob/master/routes/lws.js)
+From [routes/lws.js](https://github.com/SelfKeyFoundation/relying-party-direct-demo/blob/master/routes/lws.js)
 
 ```js
 // validate jwt token as challenge or access token
